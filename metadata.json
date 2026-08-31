@@ -1,0 +1,6 @@
+{
+  "name": "Just the Rain",
+  "description": "An interactive minimalist rain simulator featuring full-screen particle animations, binaural audio synthesis, touch-responsive ripples, haptic feedback, and background sleep support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
