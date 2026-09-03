@@ -1,0 +1,24 @@
+--- app/src/main/java/com/example/RainAudioService.kt
++++ app/src/main/java/com/example/RainAudioService.kt
+@@ -198,16 +198,16 @@
+             val thunderOn = RainState.thunderEnabled.value
+ 
+             // Background rain is always on when volume > 0, base level
+-            setVolume(mpBackgroundRain, masterVol * 0.4f)
++            setVolume(mpBackgroundRain, masterVol * 0.5f)
+             
+             // Mix light rain and heavy rain based on intensity
+-            setVolume(mpLightRain, masterVol * (1f - rainInt) * 0.8f)
+-            setVolume(mpHeavyRain, masterVol * rainInt * 1.0f)
++            setVolume(mpLightRain, masterVol * (1f - rainInt) * 0.9f)
++            setVolume(mpHeavyRain, masterVol * rainInt * 1.2f)
+             
+             // Mix wind based on wind frequency
+-            val windBase = if (stormMode) 0.8f else 0.4f
++            val windBase = if (stormMode) 1.0f else 0.5f
+             setVolume(mpWind1, masterVol * (1f - windFreq) * windBase)
+-            setVolume(mpHeavyWind1, masterVol * windFreq * windBase)
++            setVolume(mpHeavyWind1, masterVol * windFreq * windBase * 1.2f)
+ 
+             // Background thunder rumble
+             if (stormMode && thunderOn) {

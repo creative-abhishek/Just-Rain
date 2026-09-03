@@ -9,8 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
-import android.media.AudioFormat
-import android.media.AudioTrack
+import android.media.MediaPlayer
+import android.media.SoundPool
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -18,14 +18,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentLinkedQueue
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.cos
-import kotlin.math.exp
-import kotlin.math.sin
 import kotlin.random.Random
 
 object RainState {
@@ -50,9 +46,18 @@ class RainAudioService : Service() {
     private val job = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.Default + job)
 
-    private var audioTrack: AudioTrack? = null
-    private var synthesisThread: Thread? = null
     @Volatile private var isRunning = false
+
+    private var mpBackgroundRain: MediaPlayer? = null
+    private var mpLightRain: MediaPlayer? = null
+    private var mpHeavyRain: MediaPlayer? = null
+    private var mpWind1: MediaPlayer? = null
+    private var mpHeavyWind1: MediaPlayer? = null
+    private var mpAlwaysOnThunder: MediaPlayer? = null
+
+    private var soundPool: SoundPool? = null
+    private var thunderIds = mutableListOf<Int>()
+    private var dropIds = mutableListOf<Int>()
 
     companion object {
         private const val CHANNEL_ID = "rain_ambient_channel"
@@ -66,6 +71,52 @@ class RainAudioService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        initAudio()
+    }
+
+    private fun initAudio() {
+        // Initialize MediaPlayers
+        mpBackgroundRain = createLoopingMediaPlayer(R.raw.background_rain)
+        mpLightRain = createLoopingMediaPlayer(R.raw.light_rain)
+        mpHeavyRain = createLoopingMediaPlayer(R.raw.heavy_rain)
+        mpWind1 = createLoopingMediaPlayer(R.raw.wind1)
+        mpHeavyWind1 = createLoopingMediaPlayer(R.raw.heavy_wind_1)
+        mpAlwaysOnThunder = createLoopingMediaPlayer(R.raw.always_on_thunder)
+
+        // Initialize SoundPool
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+        soundPool = SoundPool.Builder()
+            .setMaxStreams(10)
+            .setAudioAttributes(audioAttributes)
+            .build()
+
+        soundPool?.let { sp ->
+            thunderIds.add(sp.load(this, R.raw.heavy_thunder_1, 1))
+            thunderIds.add(sp.load(this, R.raw.thunder_2, 1))
+            thunderIds.add(sp.load(this, R.raw.thunder3, 1))
+            thunderIds.add(sp.load(this, R.raw.thunder_4, 1))
+
+            dropIds.add(sp.load(this, R.raw.drop_1, 1))
+            dropIds.add(sp.load(this, R.raw.drop_2, 1))
+            dropIds.add(sp.load(this, R.raw.drop_3, 1))
+            dropIds.add(sp.load(this, R.raw.drop_4, 1))
+            dropIds.add(sp.load(this, R.raw.drop_5, 1))
+            dropIds.add(sp.load(this, R.raw.drop_6, 1))
+        }
+    }
+
+    private fun createLoopingMediaPlayer(resId: Int): MediaPlayer? {
+        return try {
+            val mp = MediaPlayer.create(this, resId)
+            mp?.isLooping = true
+            mp?.setVolume(0f, 0f)
+            mp
+        } catch (e: Exception) {
+            null
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -73,23 +124,23 @@ class RainAudioService : Service() {
             ACTION_START -> {
                 if (!isRunning) {
                     startForegroundService()
-                    startSynthesis()
+                    startPlayback()
                     RainState.isPlaying.value = true
                 }
             }
             ACTION_STOP -> {
-                stopSynthesis()
+                stopPlayback()
                 RainState.isPlaying.value = false
                 stopSelf()
             }
             ACTION_TOGGLE -> {
                 if (isRunning) {
-                    stopSynthesis()
+                    stopPlayback()
                     RainState.isPlaying.value = false
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 } else {
                     startForegroundService()
-                    startSynthesis()
+                    startPlayback()
                     RainState.isPlaying.value = true
                 }
             }
@@ -141,8 +192,8 @@ class RainAudioService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Just the Rain")
-            .setContentText("Synthesizing ambient rain and wind...")
-            .setSmallIcon(android.R.drawable.ic_media_play) // Standard system icon, or fallback
+            .setContentText("Playing high-quality ambient rain and wind...")
+            .setSmallIcon(android.R.drawable.ic_media_play)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
             .addAction(android.R.drawable.ic_media_pause, "Turn Off", togglePendingIntent)
@@ -151,261 +202,106 @@ class RainAudioService : Service() {
             .build()
     }
 
-    private fun startSynthesis() {
+    private fun startPlayback() {
         if (isRunning) return
         isRunning = true
 
-        val sampleRate = 44100
-        val minBufferSize = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_STEREO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        // Use a 4KB buffer for snappy responses (~1024 stereo frames)
-        val bufferSize = (minBufferSize * 2).coerceAtLeast(4096)
+        mpBackgroundRain?.start()
+        mpLightRain?.start()
+        mpHeavyRain?.start()
+        mpWind1?.start()
+        mpHeavyWind1?.start()
+        mpAlwaysOnThunder?.start()
 
-        audioTrack = AudioTrack.Builder()
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_MEDIA)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                    .build()
-            )
-            .setAudioFormat(
-                AudioFormat.Builder()
-                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
-                    .setSampleRate(sampleRate)
-                    .setChannelMask(AudioFormat.CHANNEL_OUT_STEREO)
-                    .build()
-            )
-            .setBufferSizeInBytes(bufferSize)
-            .setTransferMode(AudioTrack.MODE_STREAM)
-            .build()
-
-        synthesisThread = Thread {
-            synthesizeAudioLoop(bufferSize)
-        }.apply {
-            priority = Thread.MAX_PRIORITY
-            start()
+        serviceScope.launch {
+            audioLoop()
         }
     }
 
-    private fun stopSynthesis() {
+    private fun stopPlayback() {
         isRunning = false
-        synthesisThread?.join()
-        synthesisThread = null
-        audioTrack?.apply {
-            try {
-                stop()
-                release()
-            } catch (e: Exception) {
-                // Ignore
-            }
-        }
-        audioTrack = null
+        mpBackgroundRain?.pause()
+        mpLightRain?.pause()
+        mpHeavyRain?.pause()
+        mpWind1?.pause()
+        mpHeavyWind1?.pause()
+        mpAlwaysOnThunder?.pause()
     }
 
-    private fun synthesizeAudioLoop(bufferSize: Int) {
-        val track = audioTrack ?: return
-        val buffer = ShortArray(bufferSize / 2) // each short is 1 sample, stereo = 2 shorts per frame
-        track.play()
-
-        // Synthesis states
-        var windFilterState = 0f
-        var cutoffFilter = 0.05f
-        var windPanAngle = 0f
-        var windGustPhase = 0f
-
-        // Storm rumble states
-        var thunderFilterState = 0f
-        var thunderIntensity = 0f
-
-        // Preallocated Pool of active raindrops for performance
-        val maxRaindrops = 64
-        class Raindrop {
-            var active = false
-            var age = 0
-            var maxAge = 0
-            var panLeft = 0.5f
-            var panRight = 0.5f
-            var frequency = 800f
-            var damping = 8f
-            var amplitude = 0.05f
-        }
-        val activeDrops = Array(maxRaindrops) { Raindrop() }
-
-        // Pool of touch interactive splashes
-        val maxSplashDrops = 16
-        val activeSplashes = Array(maxSplashDrops) { Raindrop() }
-
+    private suspend fun audioLoop() {
         while (isRunning) {
-            // Read state parameters atomically (or read latest values from Flow)
-            val currentVol = RainState.volume.value
-            val currentRain = RainState.rainIntensity.value
-            val currentWind = RainState.windFrequency.value
+            val masterVol = RainState.volume.value
+            val rainInt = RainState.rainIntensity.value
+            val windFreq = RainState.windFrequency.value
             val stormMode = RainState.isStormMode.value
-            val currentTouch = RainState.touchIntensity.value
+            val thunderOn = RainState.thunderEnabled.value
 
-            // Handle manual thunder trigger
-            if (RainState.triggerThunder) {
+            // Background rain is always on when volume > 0, base level
+            setVolume(mpBackgroundRain, masterVol * 0.4f)
+            
+            // Mix light rain and heavy rain based on intensity
+            setVolume(mpLightRain, masterVol * (1f - rainInt) * 0.8f)
+            setVolume(mpHeavyRain, masterVol * rainInt * 1.0f)
+            
+            // Mix wind based on wind frequency
+            val windBase = if (stormMode) 0.8f else 0.4f
+            setVolume(mpWind1, masterVol * (1f - windFreq) * windBase)
+            setVolume(mpHeavyWind1, masterVol * windFreq * windBase)
+
+            // Background thunder rumble
+            if (stormMode && thunderOn) {
+                setVolume(mpAlwaysOnThunder, masterVol * 0.5f)
+            } else {
+                setVolume(mpAlwaysOnThunder, 0f)
+            }
+
+            // Handle Thunder events
+            if (RainState.triggerThunder && stormMode && thunderOn) {
                 RainState.triggerThunder = false
-                thunderIntensity = 1.0f
+                if (thunderIds.isNotEmpty()) {
+                    val thunderId = thunderIds[Random.nextInt(thunderIds.size)]
+                    soundPool?.play(thunderId, masterVol, masterVol, 1, 0, 1f)
+                }
             }
 
-            // Probability of starting a raindrop in each sample frame
-            // Scale by currentRain to control density
-            val dropSpawnProbability = 0.0001f + currentRain * 0.015f
-
-            // Fill the buffer with stereo samples
-            var idx = 0
-            while (idx < buffer.size) {
-                // 1. Synthesize Wind (Filtered Pink/Brown noise)
-                val whiteNoise = Random.nextFloat() * 2f - 1f
-                // Low-pass filter frequency changes with windIntensity
-                val windIntensity = Math.abs(currentWind - 0.5f) * 2f
-                val targetCutoff = 0.01f + (windIntensity * 0.07f)
-                cutoffFilter = cutoffFilter * 0.9999f + targetCutoff * 0.0001f
-                windFilterState = windFilterState * (1f - cutoffFilter) + whiteNoise * cutoffFilter
-
-                // Spatial stereo panning of wind (very slow breeze drifting)
-                windPanAngle += 0.00002f
-                val baseWindLeftPan = 1.0f - currentWind
-                val drift = 0.2f * sin(windPanAngle)
-                val windLeftPan = (baseWindLeftPan + drift).coerceIn(0f, 1f)
-                val windRightPan = 1f - windLeftPan
-
-                // Wind gust amplitude envelopes
-                windGustPhase += 0.0001f * (0.5f + windIntensity * 2.5f)
-                val gust = 0.3f + 0.7f * (0.5f + 0.5f * sin(windGustPhase) * cos(windGustPhase * 0.61f))
+            // Process Splash Queue
+            while (RainState.splashQueue.isNotEmpty()) {
+                val splashParams = RainState.splashQueue.poll() ?: break
+                val pan = splashParams.first
+                val touchInt = splashParams.second
                 
-                // Base wind scale: higher storm = higher wind volume. Zero at currentWind = 0.5.
-                val baseWindVol = (if (stormMode) 0.40f else 0.20f) * windIntensity
-                val windOutVol = currentVol * baseWindVol * gust
-                
-                var outLeft = windFilterState * windLeftPan * windOutVol
-                var outRight = windFilterState * windRightPan * windOutVol
-
-                // 2. Synthesize Thunder Rumble
-                if (thunderIntensity > 0f) {
-                    val thunderWhite = Random.nextFloat() * 2f - 1f
-                    // Heavy low pass filter (cutoff ~20Hz)
-                    thunderFilterState = thunderFilterState * 0.98f + thunderWhite * 0.02f
-                    // Rolling thunder spatial effect
-                    val thunderSample = thunderFilterState * thunderIntensity * 0.45f * currentVol
-                    outLeft += thunderSample * 0.6f
-                    outRight += thunderSample * 0.6f
-
-                    // Thunder decay: rolls on for several seconds
-                    thunderIntensity -= 1f / 44100f / 3.5f // 3.5 second decay
+                if (dropIds.isNotEmpty()) {
+                    val dropId = dropIds[Random.nextInt(dropIds.size)]
+                    
+                    val leftVol = masterVol * (1f - pan) * (0.3f + touchInt * 0.7f)
+                    val rightVol = masterVol * (pan) * (0.3f + touchInt * 0.7f)
+                    
+                    soundPool?.play(dropId, leftVol, rightVol, 0, 0, 0.9f + Random.nextFloat() * 0.2f)
                 }
-
-                // 3. Process Splash Queue (from user taps)
-                while (RainState.splashQueue.isNotEmpty()) {
-                    val splashParams = RainState.splashQueue.poll() ?: break
-                    val pan = splashParams.first // -1f (left) to 1f (right)
-                    val touchInt = splashParams.second
-
-                    // Spawn multiple drops for a rich splash sound effect!
-                    val numSplashDrops = (3 + (touchInt * 5).toInt()).coerceAtMost(5)
-                    for (d in 0 until numSplashDrops) {
-                        val slot = activeSplashes.indexOfFirst { !it.active }
-                        if (slot != -1) {
-                            val drop = activeSplashes[slot]
-                            drop.active = true
-                            drop.age = 0
-                            // Splashes are low pitch, hollow, dripping sounds (150Hz - 450Hz)
-                            drop.frequency = 120f + Random.nextFloat() * 320f + (1f - touchInt) * 200f
-                            // Quick decay
-                            drop.damping = 4.0f + Random.nextFloat() * 4.0f
-                            drop.maxAge = (44100f * (0.05f + Random.nextFloat() * 0.15f)).toInt()
-                            // Binaural stereo panning
-                            val splashPan = (pan + 1f) / 2f // Convert to 0.0 to 1.0
-                            val jitteredPan = (splashPan + (Random.nextFloat() * 0.2f - 0.1f)).coerceIn(0f, 1f)
-                            drop.panLeft = 1f - jitteredPan
-                            drop.panRight = jitteredPan
-                            // Scale by touch intensity
-                            drop.amplitude = (0.2f + Random.nextFloat() * 0.4f) * (0.3f + touchInt * 0.7f)
-                        }
-                    }
-                }
-
-                // 4. Spawn Random Background Raindrops
-                if (Random.nextFloat() < dropSpawnProbability) {
-                    val slot = activeDrops.indexOfFirst { !it.active }
-                    if (slot != -1) {
-                        val drop = activeDrops[slot]
-                        drop.active = true
-                        drop.age = 0
-                        // Short raindrop clicks (500Hz to 1800Hz)
-                        drop.frequency = 400f + Random.nextFloat() * 1200f - currentRain * 200f
-                        // Damping is how quickly the droplet decays
-                        drop.damping = 6.0f + Random.nextFloat() * 9.0f
-                        // Duration (10ms to 120ms)
-                        drop.maxAge = (44100f * (0.01f + Random.nextFloat() * 0.11f)).toInt()
-                        // Fully random binaural spatial layout
-                        val pan = Random.nextFloat()
-                        drop.panLeft = 1f - pan
-                        drop.panRight = pan
-                        // Scale amplitude
-                        drop.amplitude = 0.04f + Random.nextFloat() * 0.18f
-                    }
-                }
-
-                // 5. Synthesize Active Background Raindrops
-                var rainL = 0f
-                var rainR = 0f
-                for (i in 0 until maxRaindrops) {
-                    val drop = activeDrops[i]
-                    if (drop.active) {
-                        val t = drop.age.toFloat() / 44100f
-                        // Exponential decaying wave
-                        val sample = sin(2f * PI.toFloat() * drop.frequency * t) * exp(-drop.damping * t * 100f) * drop.amplitude
-                        rainL += sample * drop.panLeft
-                        rainR += sample * drop.panRight
-
-                        drop.age++
-                        if (drop.age >= drop.maxAge) {
-                            drop.active = false
-                        }
-                    }
-                }
-
-                // 6. Synthesize Active Interactive Splashes
-                for (i in 0 until maxSplashDrops) {
-                    val drop = activeSplashes[i]
-                    if (drop.active) {
-                        val t = drop.age.toFloat() / 44100f
-                        val sample = sin(2f * PI.toFloat() * drop.frequency * t) * exp(-drop.damping * t * 100f) * drop.amplitude
-                        rainL += sample * drop.panLeft
-                        rainR += sample * drop.panRight
-
-                        drop.age++
-                        if (drop.age >= drop.maxAge) {
-                            drop.active = false
-                        }
-                    }
-                }
-
-                // Accumulate wind, rain, and apply master volume
-                val finalL = (outLeft + rainL * 0.8f) * currentVol
-                val finalR = (outRight + rainR * 0.8f) * currentVol
-
-                // Convert float to 16-bit PCM short (clamping to avoid clipping)
-                val shortL = (finalL * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
-                val shortR = (finalR * 32767f).coerceIn(-32768f, 32767f).toInt().toShort()
-
-                buffer[idx++] = shortL
-                buffer[idx++] = shortR
             }
 
-            // Write chunk to AudioTrack
-            track.write(buffer, 0, buffer.size)
+            delay(50) // Update volumes and check queues at ~20Hz
         }
+    }
+
+    private fun setVolume(mp: MediaPlayer?, vol: Float) {
+        mp?.setVolume(vol, vol)
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        stopSynthesis()
+        stopPlayback()
+        
+        mpBackgroundRain?.release()
+        mpLightRain?.release()
+        mpHeavyRain?.release()
+        mpWind1?.release()
+        mpHeavyWind1?.release()
+        mpAlwaysOnThunder?.release()
+        
+        soundPool?.release()
+        soundPool = null
+        
         serviceScope.cancel()
     }
 
