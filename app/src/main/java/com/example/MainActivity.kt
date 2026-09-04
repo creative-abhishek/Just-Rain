@@ -15,8 +15,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
+
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -53,7 +59,8 @@ import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.VolumeDown
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowUp
 import androidx.compose.material.icons.filled.KeyboardDoubleArrowDown
@@ -338,7 +345,7 @@ class RainParticleSystem {
                     length = 15f + Random.nextFloat() * 20f,
                     width = 2f + Random.nextFloat() * 2f,
                     alpha = 0.4f + Random.nextFloat() * 0.5f,
-                    targetGroundY = h * 0.65f + Random.nextFloat() * (h * 0.35f)
+                    targetGroundY = if (RainState.rippleLevel.value <= 0.01f) h + 100f else h * (1f - RainState.rippleLevel.value) + Random.nextFloat() * (h * RainState.rippleLevel.value)
                 )
             )
         }
@@ -359,7 +366,7 @@ class RainParticleSystem {
                     length = 15f + Random.nextFloat() * 20f,
                     width = 2f + Random.nextFloat() * 2f,
                     alpha = 0.4f + Random.nextFloat() * 0.5f,
-                    targetGroundY = height * 0.65f + Random.nextFloat() * (height * 0.35f)
+                    targetGroundY = if (RainState.rippleLevel.value <= 0.01f) height + 100f else height * (1f - RainState.rippleLevel.value) + Random.nextFloat() * (height * RainState.rippleLevel.value)
                 )
             )
         }
@@ -368,7 +375,7 @@ class RainParticleSystem {
         }
 
         // Wind angle calculation
-        val windSlope = (windFrequency - 0.5f) * 1100f
+        val windSlope = (windFrequency - 0.5f) * 3500f // Increased slope
         val dx = windSlope * dt
 
         // Update active drops
@@ -421,7 +428,7 @@ class RainParticleSystem {
                 d.length = 15f + Random.nextFloat() * 20f + rainIntensity * 30f
                 d.width = 2f + Random.nextFloat() * 2f
                 d.alpha = 0.4f + Random.nextFloat() * 0.5f
-                d.targetGroundY = height * 0.65f + Random.nextFloat() * (height * 0.35f)
+                d.targetGroundY = if (RainState.rippleLevel.value <= 0.01f) height + 100f else height * (1f - RainState.rippleLevel.value) + Random.nextFloat() * (height * RainState.rippleLevel.value)
             }
         }
 
@@ -498,6 +505,13 @@ fun RainAppScreen(
     val isStormMode by RainState.isStormMode.collectAsStateWithLifecycle()
     val hapticsEnabled by RainState.hapticsEnabled.collectAsStateWithLifecycle()
     val thunderEnabled by RainState.thunderEnabled.collectAsStateWithLifecycle()
+    val rippleLevel by RainState.rippleLevel.collectAsStateWithLifecycle()
+    val backgroundImageUri by RainState.backgroundImageUri.collectAsStateWithLifecycle()
+    
+    val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
+        onResult = { uri -> RainState.backgroundImageUri.value = uri }
+    )
 
     var backgroundSleepMode by remember { mutableStateOf(true) }
     var showGestureHint by remember { mutableStateOf(true) }
@@ -519,7 +533,7 @@ fun RainAppScreen(
         // Keep HUD visible for 5.5 seconds, then fade out if playing
         if (!showControlPanel) {
             kotlinx.coroutines.delay(5500)
-            if (isPlaying) {
+            if (isPlaying && !showControlPanel) {
                 showHud = false
             }
         }
@@ -610,7 +624,9 @@ fun RainAppScreen(
                 detectDragGestures(
                     onDragStart = { offset ->
                         lastInteractionTime = System.currentTimeMillis()
-                        showHud = false
+                        if (!showControlPanel) {
+                            showHud = false
+                        }
 
                         // Translate to stereo panning (-1f to 1f)
                         val pan = (offset.x / size.width) * 2f - 1f
@@ -623,12 +639,14 @@ fun RainAppScreen(
                     onDrag = { change, dragAmount ->
                         change.consume()
                         lastInteractionTime = System.currentTimeMillis()
-                        showHud = false
+                        if (!showControlPanel) {
+                            showHud = false
+                        }
 
                         // Horizontal swipe changes wind frequency (direction/speed)
                         val deltaX = dragAmount.x / size.width
                         
-                        val targetWind = (RainState.windFrequency.value + deltaX * 1.1f).coerceIn(0f, 1f)
+                        val targetWind = (RainState.windFrequency.value + deltaX * 1.5f).coerceIn(0f, 1f)
                         RainState.windFrequency.value = targetWind
 
                         // Continuous soft tactile ticks during adjustments
@@ -644,7 +662,11 @@ fun RainAppScreen(
                     if (isLocked) {
                         lockButtonVisible = true
                     } else {
-                        showHud = !showHud
+                        if (showControlPanel) {
+                            showControlPanel = false
+                        } else {
+                            showHud = !showHud
+                        }
 
                         val pan = (offset.x / size.width) * 2f - 1f
                         val touchY = 1f - (offset.y / size.height)
@@ -678,7 +700,7 @@ fun RainAppScreen(
             }
 
             // Draw falling raindrop streaks (Wind slanted)
-            val windSlope = (windFrequency - 0.5f) * 1100f
+            val windSlope = (windFrequency - 0.5f) * 3500f
             for (d in particleSystem.drops) {
                 val headX = d.x
                 val headY = d.y
@@ -1010,7 +1032,7 @@ fun RainAppScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.VolumeUp,
+                        imageVector = Icons.Default.KeyboardArrowUp,
                         contentDescription = "Volume Up",
                         tint = Color(0xFF64748B),
                         modifier = Modifier.size(14.dp)
@@ -1056,12 +1078,12 @@ fun RainAppScreen(
                         .navigationBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 24.dp)
                         .background(
-                            color = Color(0x600F172A),
+                            color = Color(0x990F172A),
                             shape = RoundedCornerShape(32.dp)
                         )
                         .border(
                             1.dp,
-                            Color(0x20FFFFFF),
+                            Color(0x40FFFFFF),
                             shape = RoundedCornerShape(32.dp)
                         )
                         .padding(horizontal = 20.dp, vertical = 20.dp)
@@ -1267,32 +1289,30 @@ fun RainAppScreen(
                                             shape = RoundedCornerShape(16.dp)
                                         )
                                         .clickable {
-                                            val intent = Intent(context, RainAudioService::class.java).apply {
-                                                action = RainAudioService.ACTION_TOGGLE
-                                            }
-                                            context.startService(intent)
+                                            RainState.isMuted.value = !RainState.isMuted.value
                                             triggerTouchHaptic(context, 0.8f)
                                         }
                                         .padding(14.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    val isMuted by RainState.isMuted.collectAsStateWithLifecycle()
                                     Column(modifier = Modifier.weight(1f)) {
                                         Icon(
-                                            imageVector = if (isPlaying) Icons.Default.GraphicEq else Icons.Default.Pause,
-                                            contentDescription = "Binaural Synthesis",
-                                            tint = if (isPlaying) Color(0xFF60A5FA) else Color(0xFF475569),
+                                            imageVector = if (!isMuted) Icons.Default.Check else Icons.Default.Clear,
+                                            contentDescription = "Mute Toggle",
+                                            tint = if (!isMuted) Color(0xFF60A5FA) else Color(0xFF475569),
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
                                         Text(
-                                            text = "Binaural",
+                                            text = "Audio",
                                             color = Color.White,
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = if (isPlaying) "Active" else "Paused",
+                                            text = if (!isMuted) "Active" else "Muted",
                                             color = Color(0xFF64748B),
                                             fontSize = 10.sp
                                         )
@@ -1313,56 +1333,129 @@ fun RainAppScreen(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.weight(1f))
+                                // Ambient Thunder control card
+                                val ambientThunderEnabled by RainState.ambientThunderEnabled.collectAsStateWithLifecycle()
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .background(Color(0x200F172A), shape = RoundedCornerShape(16.dp))
+                                        .border(
+                                            1.dp,
+                                            Color(0xFF1E293B),
+                                            shape = RoundedCornerShape(16.dp)
+                                        )
+                                        .clickable {
+                                            RainState.ambientThunderEnabled.value = !RainState.ambientThunderEnabled.value
+                                            triggerTouchHaptic(context, 0.6f)
+                                        }
+                                        .padding(14.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Icon(
+                                            imageVector = Icons.Default.CloudQueue,
+                                            contentDescription = "Ambient Thunder",
+                                            tint = if (ambientThunderEnabled) Color(0xFF60A5FA) else Color(0xFF475569),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text(
+                                            text = "Amb. Thunder",
+                                            color = Color.White,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (ambientThunderEnabled) "Active" else "Disabled",
+                                            color = Color(0xFF64748B),
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(
+                                                color = if (ambientThunderEnabled) Color(0xFF22C55E) else Color(0xFF64748B),
+                                                shape = CircleShape
+                                            )
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
+        }
 
-                // Interactive Diagnostic Stats Overlay
-                if (showStatsOverlay) {
-                    androidx.compose.ui.window.Dialog(onDismissRequest = { showStatsOverlay = false }) {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("stats_card"),
-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B0F19).copy(alpha = 0.95f)),
-                            shape = RoundedCornerShape(20.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+        // Interactive Diagnostic Stats Overlay
+        if (showStatsOverlay) {
+            androidx.compose.ui.window.Dialog(onDismissRequest = { showStatsOverlay = false }) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("stats_card"),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0B0F19).copy(alpha = 0.95f)),
+                    shape = RoundedCornerShape(20.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "Binaural Synthesis Diagnostics",
-                                        color = Color(0xFF38BDF8),
-                                        fontSize = 13.sp,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    IconButton(
-                                        onClick = { showStatsOverlay = false },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Pause, // placeholder for tiny close
-                                            contentDescription = "Close",
-                                            tint = Color(0xFF64748B),
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                DiagnosticRow(label = "Active Audio Buffer", value = "4096 Bytes")
-                                DiagnosticRow(label = "Sample Resolution", value = "44.1kHz stereo PCM")
-                                DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
-                                DiagnosticRow(label = "Wind Modulation", value = "${(windFrequency * 100).toInt()}%")
-                                DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
-                                DiagnosticRow(label = "Lightning Interval", value = if (isStormMode) "7s - 18s" else "Disabled")
+                            Text(
+                                text = "Settings",
+                                color = Color(0xFF38BDF8),
+                                fontSize = 13.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold
+                            )
+                            IconButton(
+                                onClick = { showStatsOverlay = false },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close, // placeholder for tiny close
+                                    contentDescription = "Close",
+                                    tint = Color(0xFF64748B),
+                                    modifier = Modifier.size(16.dp)
+                                )
                             }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                        DiagnosticRow(label = "Active Audio Buffer", value = "4096 Bytes")
+                        DiagnosticRow(label = "Sample Resolution", value = "44.1kHz stereo PCM")
+                        DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
+                        DiagnosticRow(label = "Wind Modulation", value = "${(kotlin.math.abs(windFrequency - 0.5f) * 200).toInt()}%")
+                        DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
+                        DiagnosticRow(label = "Lightning Interval", value = if (isStormMode) "7s - 18s" else "Disabled")
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Ripple Animation Level", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        androidx.compose.material3.Slider(
+                            value = rippleLevel,
+                            onValueChange = { RainState.rippleLevel.value = it },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        androidx.compose.material3.Button(
+                            onClick = { 
+                                imagePickerLauncher.launch(
+                                    androidx.activity.result.PickVisualMediaRequest(
+                                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                                    )
+                                ) 
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B))
+                        ) {
+                            Icon(imageVector = Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Set Background Image", color = Color.White, fontSize = 12.sp)
                         }
                     }
                 }

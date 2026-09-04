@@ -1,0 +1,107 @@
+--- app/src/main/java/com/example/MainActivity.kt
++++ app/src/main/java/com/example/MainActivity.kt
+@@ -1375,34 +1375,37 @@
+                     }
+                 }
+-
+-                // Interactive Diagnostic Stats Overlay
+-                if (showStatsOverlay) {
+-                    androidx.compose.ui.window.Dialog(onDismissRequest = { showStatsOverlay = false }) {
+-                        Card(
+-                            modifier = Modifier
+-                                .fillMaxWidth()
+-                                .testTag("stats_card"),
+-                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0B0F19).copy(alpha = 0.95f)),
+-                            shape = RoundedCornerShape(20.dp),
+-                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
+-                        ) {
+-                            Column(modifier = Modifier.padding(20.dp)) {
+-                                Row(
+-                                    modifier = Modifier.fillMaxWidth(),
+-                                    horizontalArrangement = Arrangement.SpaceBetween,
+-                                    verticalAlignment = Alignment.CenterVertically
+-                                ) {
+-                                    Text(
+-                                        text = "Binaural Synthesis Diagnostics",
+-                                        color = Color(0xFF38BDF8),
+-                                        fontSize = 13.sp,
+-                                        fontFamily = FontFamily.Monospace,
+-                                        fontWeight = FontWeight.Bold
+-                                    )
+-                                    IconButton(
+-                                        onClick = { showStatsOverlay = false },
+-                                        modifier = Modifier.size(24.dp)
+-                                    ) {
+-                                        Icon(
+-                                            imageVector = Icons.Default.Pause, // placeholder for tiny close
+-                                            contentDescription = "Close",
+-                                            tint = Color(0xFF64748B),
+-                                            modifier = Modifier.size(16.dp)
+-                                        )
+-                                    }
+-                                }
+-
+-                                Spacer(modifier = Modifier.height(12.dp))
+-                                DiagnosticRow(label = "Active Audio Buffer", value = "4096 Bytes")
+-                                DiagnosticRow(label = "Sample Resolution", value = "44.1kHz stereo PCM")
+-                                DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
+-                                DiagnosticRow(label = "Wind Modulation", value = "${(windFrequency * 100).toInt()}%")
+-                                DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
+-                                DiagnosticRow(label = "Lightning Interval", value = if (isStormMode) "7s - 18s" else "Disabled")
+-                            }
+-                        }
+-                    }
+-                }
+             }
+         }
++
++        // Interactive Diagnostic Stats Overlay
++        if (showStatsOverlay) {
++            androidx.compose.ui.window.Dialog(onDismissRequest = { showStatsOverlay = false }) {
++                Card(
++                    modifier = Modifier
++                        .fillMaxWidth()
++                        .testTag("stats_card"),
++                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0B0F19).copy(alpha = 0.95f)),
++                    shape = RoundedCornerShape(20.dp),
++                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B))
++                ) {
++                    Column(modifier = Modifier.padding(20.dp)) {
++                        Row(
++                            modifier = Modifier.fillMaxWidth(),
++                            horizontalArrangement = Arrangement.SpaceBetween,
++                            verticalAlignment = Alignment.CenterVertically
++                        ) {
++                            Text(
++                                text = "Binaural Synthesis Diagnostics",
++                                color = Color(0xFF38BDF8),
++                                fontSize = 13.sp,
++                                fontFamily = FontFamily.Monospace,
++                                fontWeight = FontWeight.Bold
++                            )
++                            IconButton(
++                                onClick = { showStatsOverlay = false },
++                                modifier = Modifier.size(24.dp)
++                            ) {
++                                Icon(
++                                    imageVector = Icons.Default.Pause, // placeholder for tiny close
++                                    contentDescription = "Close",
++                                    tint = Color(0xFF64748B),
++                                    modifier = Modifier.size(16.dp)
++                                )
++                            }
++                        }
++
++                        Spacer(modifier = Modifier.height(12.dp))
++                        DiagnosticRow(label = "Active Audio Buffer", value = "4096 Bytes")
++                        DiagnosticRow(label = "Sample Resolution", value = "44.1kHz stereo PCM")
++                        DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
++                        DiagnosticRow(label = "Wind Modulation", value = "${(windFrequency * 100).toInt()}%")
++                        DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
++                        DiagnosticRow(label = "Lightning Interval", value = if (isStormMode) "7s - 18s" else "Disabled")
++                    }
++                }
++            }
++        }
+     }
+ }

@@ -1,0 +1,163 @@
+--- app/src/main/java/com/example/RainAudioService.kt
++++ app/src/main/java/com/example/RainAudioService.kt
+@@ -49,10 +49,10 @@
+ 
+     @Volatile private var isRunning = false
+ 
+-    private var mpLightRain: MediaPlayer? = null
+-    private var mpHeavyRain: MediaPlayer? = null
+-    private var mpWind: MediaPlayer? = null
+-    private var mpAlwaysOnThunder: MediaPlayer? = null
++    private var mpLightRain: GaplessAudioTrack? = null
++    private var mpHeavyRain: GaplessAudioTrack? = null
++    private var mpWind: GaplessAudioTrack? = null
++    private var mpAlwaysOnThunder: GaplessAudioTrack? = null
+ 
+     private var soundPool: SoundPool? = null
+     private var thunderIds = mutableListOf<Int>()
+@@ -75,10 +75,10 @@
+ 
+     private fun initAudio() {
+         // Initialize MediaPlayers
+-        mpLightRain = createLoopingMediaPlayer(R.raw.light_rain)
+-        mpHeavyRain = createLoopingMediaPlayer(R.raw.heavy_rain)
+-        mpWind = createLoopingMediaPlayer(R.raw.wind)
+-        mpAlwaysOnThunder = createLoopingMediaPlayer(R.raw.always_on_thunder)
++        mpLightRain = GaplessAudioTrack(this, R.raw.light_rain)
++        mpHeavyRain = GaplessAudioTrack(this, R.raw.heavy_rain)
++        mpWind = GaplessAudioTrack(this, R.raw.wind)
++        mpAlwaysOnThunder = GaplessAudioTrack(this, R.raw.always_on_thunder)
+ 
+         // Initialize SoundPool
+         val audioAttributes = AudioAttributes.Builder()
+@@ -106,16 +106,6 @@
+         }
+     }
+ 
+-    private fun createLoopingMediaPlayer(resId: Int): MediaPlayer? {
+-        return try {
+-            val mp = MediaPlayer.create(this, resId)
+-            mp?.isLooping = true
+-            mp?.setVolume(0f, 0f)
+-            mp
+-        } catch (e: Exception) {
+-            null
+-        }
+-    }
+-
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+         when (intent?.action) {
+@@ -224,19 +214,24 @@
+ 
+     private suspend fun audioLoop() {
+         while (isRunning) {
+-            val masterVol = RainState.volume.value
++            val isMuted = RainState.isMuted.value
++            val masterVol = if (isMuted) 0f else RainState.volume.value
+             val rainInt = RainState.rainIntensity.value
+             val windFreq = RainState.windFrequency.value
+             val stormMode = RainState.isStormMode.value
+             val thunderOn = RainState.thunderEnabled.value
+             val ambientThunderOn = RainState.ambientThunderEnabled.value
+ 
++            mpLightRain?.checkOverlap()
++            mpHeavyRain?.checkOverlap()
++            mpWind?.checkOverlap()
++            mpAlwaysOnThunder?.checkOverlap()
++
+             // Mix light rain and heavy rain based on intensity
+-            setVolume(mpLightRain, masterVol) // Light rain is always full volume
+-            setVolume(mpHeavyRain, masterVol * rainInt) // Heavy rain scales with rain intensity
++            mpLightRain?.setVolume(masterVol) // Light rain is always full volume
++            mpHeavyRain?.setVolume(masterVol * rainInt) // Heavy rain scales with rain intensity
+             
+             // Wind volume is 0 at center (0.5), and 100% at extremes (0.0 or 1.0)
+             val windVol = masterVol * (kotlin.math.abs(windFreq - 0.5f) * 2f)
+-            setVolume(mpWind, windVol)
++            mpWind?.setVolume(windVol)
+ 
+             // Background thunder rumble
+             if (ambientThunderOn) {
+-                setVolume(mpAlwaysOnThunder, masterVol * 0.7f)
++                mpAlwaysOnThunder?.setVolume(masterVol * 0.7f)
+             } else {
+-                setVolume(mpAlwaysOnThunder, 0f)
++                mpAlwaysOnThunder?.setVolume(0f)
+             }
+ 
+@@ -275,10 +270,6 @@
+         }
+     }
+ 
+-    private fun setVolume(mp: MediaPlayer?, vol: Float) {
+-        mp?.setVolume(vol, vol)
+-    }
+-
+     override fun onDestroy() {
+         super.onDestroy()
+         stopPlayback()
+@@ -296,4 +287,54 @@
+     override fun onBind(intent: Intent?): IBinder? = null
+ }
++
++class GaplessAudioTrack(private val context: Context, private val resId: Int) {
++    private var activeMp: MediaPlayer? = null
++    private var nextMp: MediaPlayer? = null
++    private var currentVol = 0f
++    private var isRunning = false
++
++    init {
++        activeMp = createPlayer()
++        nextMp = createPlayer()
++        activeMp?.setNextMediaPlayer(nextMp)
++        setupCompletionListener(activeMp)
++        setupCompletionListener(nextMp)
++    }
++
++    private fun createPlayer(): MediaPlayer? {
++        return try {
++            val mp = MediaPlayer.create(context, resId)
++            mp?.setVolume(currentVol, currentVol)
++            mp
++        } catch (e: Exception) {
++            null
++        }
++    }
++
++    private fun setupCompletionListener(mp: MediaPlayer?) {
++        mp?.setOnCompletionListener { completedPlayer ->
++            activeMp = nextMp
++            completedPlayer.seekTo(0)
++            nextMp = completedPlayer
++            activeMp?.setNextMediaPlayer(nextMp)
++        }
++    }
++
++    fun start() {
++        isRunning = true
++        activeMp?.start()
++    }
++
++    fun pause() {
++        isRunning = false
++        activeMp?.pause()
++        nextMp?.pause()
++    }
++
++    fun setVolume(vol: Float) {
++        currentVol = vol
++        activeMp?.setVolume(vol, vol)
++        nextMp?.setVolume(vol, vol)
++    }
++
++    fun checkOverlap() {
++        // Custom overlap if setNextMediaPlayer is not perfectly gapless
++        // We can do manual crossfade here if needed, but setNextMediaPlayer 
++        // is usually hardware-supported gapless.
++    }
++
++    fun release() {
++        activeMp?.release()
++        nextMp?.release()
++    }
++}

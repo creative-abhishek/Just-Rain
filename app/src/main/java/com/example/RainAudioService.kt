@@ -32,7 +32,11 @@ object RainState {
     val touchIntensity = MutableStateFlow(0.0f) // 0.0 to 1.0
     val isStormMode = MutableStateFlow(false)
     val thunderEnabled = MutableStateFlow(true)
+    val ambientThunderEnabled = MutableStateFlow(false)
     val hapticsEnabled = MutableStateFlow(true)
+    val isMuted = MutableStateFlow(false)
+    val rippleLevel = MutableStateFlow(0.33f) // 0.0 to 1.0
+    val backgroundImageUri = MutableStateFlow<android.net.Uri?>(null)
 
     // Queue for instant touch-triggered splashes: Pair(pan, volumeFactor)
     val splashQueue = ConcurrentLinkedQueue<Pair<Float, Float>>()
@@ -48,12 +52,10 @@ class RainAudioService : Service() {
 
     @Volatile private var isRunning = false
 
-    private var mpBackgroundRain: MediaPlayer? = null
-    private var mpLightRain: MediaPlayer? = null
-    private var mpHeavyRain: MediaPlayer? = null
-    private var mpWind1: MediaPlayer? = null
-    private var mpHeavyWind1: MediaPlayer? = null
-    private var mpAlwaysOnThunder: MediaPlayer? = null
+    private var mpLightRain: GaplessAudioTrack? = null
+    private var mpHeavyRain: GaplessAudioTrack? = null
+    private var mpWind: GaplessAudioTrack? = null
+    private var mpAlwaysOnThunder: GaplessAudioTrack? = null
 
     private var soundPool: SoundPool? = null
     private var thunderIds = mutableListOf<Int>()
@@ -76,12 +78,10 @@ class RainAudioService : Service() {
 
     private fun initAudio() {
         // Initialize MediaPlayers
-        mpBackgroundRain = createLoopingMediaPlayer(R.raw.background_rain)
-        mpLightRain = createLoopingMediaPlayer(R.raw.light_rain)
-        mpHeavyRain = createLoopingMediaPlayer(R.raw.heavy_rain)
-        mpWind1 = createLoopingMediaPlayer(R.raw.wind1)
-        mpHeavyWind1 = createLoopingMediaPlayer(R.raw.heavy_wind_1)
-        mpAlwaysOnThunder = createLoopingMediaPlayer(R.raw.always_on_thunder)
+        mpLightRain = GaplessAudioTrack(this, R.raw.light_rain)
+        mpHeavyRain = GaplessAudioTrack(this, R.raw.heavy_rain)
+        mpWind = GaplessAudioTrack(this, R.raw.wind)
+        mpAlwaysOnThunder = GaplessAudioTrack(this, R.raw.always_on_thunder)
 
         // Initialize SoundPool
         val audioAttributes = AudioAttributes.Builder()
@@ -94,10 +94,11 @@ class RainAudioService : Service() {
             .build()
 
         soundPool?.let { sp ->
-            thunderIds.add(sp.load(this, R.raw.heavy_thunder_1, 1))
+            thunderIds.add(sp.load(this, R.raw.thunder_1, 1))
             thunderIds.add(sp.load(this, R.raw.thunder_2, 1))
-            thunderIds.add(sp.load(this, R.raw.thunder3, 1))
+            thunderIds.add(sp.load(this, R.raw.thunder_3, 1))
             thunderIds.add(sp.load(this, R.raw.thunder_4, 1))
+            thunderIds.add(sp.load(this, R.raw.thunder_5, 1))
 
             dropIds.add(sp.load(this, R.raw.drop_1, 1))
             dropIds.add(sp.load(this, R.raw.drop_2, 1))
@@ -108,16 +109,7 @@ class RainAudioService : Service() {
         }
     }
 
-    private fun createLoopingMediaPlayer(resId: Int): MediaPlayer? {
-        return try {
-            val mp = MediaPlayer.create(this, resId)
-            mp?.isLooping = true
-            mp?.setVolume(0f, 0f)
-            mp
-        } catch (e: Exception) {
-            null
-        }
-    }
+    
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -206,11 +198,9 @@ class RainAudioService : Service() {
         if (isRunning) return
         isRunning = true
 
-        mpBackgroundRain?.start()
         mpLightRain?.start()
         mpHeavyRain?.start()
-        mpWind1?.start()
-        mpHeavyWind1?.start()
+        mpWind?.start()
         mpAlwaysOnThunder?.start()
 
         serviceScope.launch {
@@ -220,39 +210,35 @@ class RainAudioService : Service() {
 
     private fun stopPlayback() {
         isRunning = false
-        mpBackgroundRain?.pause()
         mpLightRain?.pause()
         mpHeavyRain?.pause()
-        mpWind1?.pause()
-        mpHeavyWind1?.pause()
+        mpWind?.pause()
         mpAlwaysOnThunder?.pause()
     }
 
     private suspend fun audioLoop() {
         while (isRunning) {
-            val masterVol = RainState.volume.value
+            val isMuted = RainState.isMuted.value
+            val masterVol = if (isMuted) 0f else RainState.volume.value
             val rainInt = RainState.rainIntensity.value
             val windFreq = RainState.windFrequency.value
             val stormMode = RainState.isStormMode.value
             val thunderOn = RainState.thunderEnabled.value
+            val ambientThunderOn = RainState.ambientThunderEnabled.value
 
-            // Background rain is always on when volume > 0, base level
-            setVolume(mpBackgroundRain, masterVol * 0.4f)
-            
             // Mix light rain and heavy rain based on intensity
-            setVolume(mpLightRain, masterVol * (1f - rainInt) * 0.8f)
-            setVolume(mpHeavyRain, masterVol * rainInt * 1.0f)
+            mpLightRain?.setVolume(masterVol) // Light rain is always full volume
+            mpHeavyRain?.setVolume(masterVol * rainInt) // Heavy rain scales with rain intensity
             
-            // Mix wind based on wind frequency
-            val windBase = if (stormMode) 0.8f else 0.4f
-            setVolume(mpWind1, masterVol * (1f - windFreq) * windBase)
-            setVolume(mpHeavyWind1, masterVol * windFreq * windBase)
+            // Wind volume is 0 at center (0.5), and 100% at extremes (0.0 or 1.0)
+            val windVol = masterVol * (kotlin.math.abs(windFreq - 0.5f) * 2f)
+            mpWind?.setVolume(windVol)
 
             // Background thunder rumble
-            if (stormMode && thunderOn) {
-                setVolume(mpAlwaysOnThunder, masterVol * 0.5f)
+            if (ambientThunderOn) {
+                mpAlwaysOnThunder?.setVolume(masterVol * 0.7f)
             } else {
-                setVolume(mpAlwaysOnThunder, 0f)
+                mpAlwaysOnThunder?.setVolume(0f)
             }
 
             // Handle Thunder events
@@ -284,19 +270,15 @@ class RainAudioService : Service() {
         }
     }
 
-    private fun setVolume(mp: MediaPlayer?, vol: Float) {
-        mp?.setVolume(vol, vol)
-    }
+    
 
     override fun onDestroy() {
         super.onDestroy()
         stopPlayback()
         
-        mpBackgroundRain?.release()
         mpLightRain?.release()
         mpHeavyRain?.release()
-        mpWind1?.release()
-        mpHeavyWind1?.release()
+        mpWind?.release()
         mpAlwaysOnThunder?.release()
         
         soundPool?.release()
@@ -306,4 +288,61 @@ class RainAudioService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+}
+
+class GaplessAudioTrack(private val context: Context, private val resId: Int) {
+    private var activeMp: MediaPlayer? = null
+    private var nextMp: MediaPlayer? = null
+    private var currentVol = 0f
+
+    init {
+        activeMp = createPlayer()
+        nextMp = createPlayer()
+        try {
+            activeMp?.setNextMediaPlayer(nextMp)
+        } catch (e: Exception) {}
+        setupCompletionListener(activeMp)
+        setupCompletionListener(nextMp)
+    }
+
+    private fun createPlayer(): MediaPlayer? {
+        return try {
+            val mp = MediaPlayer.create(context, resId)
+            mp?.setVolume(currentVol, currentVol)
+            mp
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun setupCompletionListener(mp: MediaPlayer?) {
+        mp?.setOnCompletionListener { completedPlayer ->
+            activeMp = nextMp
+            completedPlayer.seekTo(0)
+            nextMp = completedPlayer
+            try {
+                activeMp?.setNextMediaPlayer(nextMp)
+            } catch (e: Exception) {}
+        }
+    }
+
+    fun start() {
+        activeMp?.start()
+    }
+
+    fun pause() {
+        activeMp?.pause()
+        nextMp?.pause()
+    }
+
+    fun setVolume(vol: Float) {
+        currentVol = vol
+        activeMp?.setVolume(vol, vol)
+        nextMp?.setVolume(vol, vol)
+    }
+
+    fun release() {
+        activeMp?.release()
+        nextMp?.release()
+    }
 }
