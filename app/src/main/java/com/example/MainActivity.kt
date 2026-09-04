@@ -64,6 +64,17 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.items
+import com.example.themes.DummyThemeData
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
@@ -357,7 +368,7 @@ class RainParticleSystem {
         }
     }
 
-    fun update(dt: Float, rainIntensity: Float, windFrequency: Float, isStorm: Boolean) {
+    fun update(dt: Float, rainIntensity: Float, windFrequency: Float, isStorm: Boolean, radiusMulti: Float = 0.5f, durationMulti: Float = 0.5f) {
         if (width == 0f || height == 0f) return
 
         // Drop count scaled by intensity
@@ -399,13 +410,14 @@ class RainParticleSystem {
             if (d.y >= groundY) {
                 // Splash/Ripple triggers
                 if (ripples.size < 120) {
-                    val maxR = 25f + Random.nextFloat() * 35f + rainIntensity * 25f
+                    val scaleR = 0.2f + (radiusMulti * 2.3f)
+                    val maxR = (25f + Random.nextFloat() * 35f + rainIntensity * 25f) * scaleR
                     ripples.add(
                         PuddleRipple(
                             x = d.x,
                             y = groundY,
                             maxRadius = maxR,
-                            maxAge = 0.35f + Random.nextFloat() * 0.25f
+                            maxAge = (0.35f + Random.nextFloat() * 0.25f) * (0.2f + (durationMulti * 2.8f))
                         )
                     )
                 }
@@ -468,7 +480,7 @@ class RainParticleSystem {
         }
     }
 
-    fun injectTouchSplash(x: Float, y: Float, intensity: Float) {
+    fun injectTouchSplash(x: Float, y: Float, intensity: Float, radiusMulti: Float = 0.5f, durationMulti: Float = 0.5f) {
         val numSplash = (10 + (intensity * 15).toInt()).coerceAtMost(25)
         for (i in 0 until numSplash) {
             splashes.add(
@@ -488,8 +500,8 @@ class RainParticleSystem {
             PuddleRipple(
                 x = x,
                 y = y,
-                maxRadius = 45f + intensity * 60f,
-                maxAge = 0.55f + intensity * 0.25f
+                maxRadius = (45f + intensity * 60f) * (0.2f + (radiusMulti * 2.3f)),
+                maxAge = (0.55f + intensity * 0.25f) * (0.2f + (durationMulti * 2.8f))
             )
         )
     }
@@ -512,6 +524,8 @@ fun RainAppScreen(
     val hapticsEnabled by RainState.hapticsEnabled.collectAsStateWithLifecycle()
     val thunderEnabled by RainState.thunderEnabled.collectAsStateWithLifecycle()
     val rippleLevel by RainState.rippleLevel.collectAsStateWithLifecycle()
+    val rippleRadiusMulti by RainState.rippleRadiusMultiplier.collectAsStateWithLifecycle()
+    val rippleDurationMulti by RainState.rippleDurationMultiplier.collectAsStateWithLifecycle()
     val backgroundImageUri by RainState.backgroundImageUri.collectAsStateWithLifecycle()
     
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -534,6 +548,7 @@ fun RainAppScreen(
     var backgroundSleepMode by remember { mutableStateOf(true) }
     var showGestureHint by remember { mutableStateOf(true) }
     var showStatsOverlay by remember { mutableStateOf(false) }
+    var showThemesPage by remember { mutableStateOf(false) }
     var showControlPanel by remember { mutableStateOf(false) }
     var isLocked by remember { mutableStateOf(false) }
     var lockButtonVisible by remember { mutableStateOf(false) }
@@ -610,7 +625,7 @@ fun RainAppScreen(
                 withFrameMillis { now ->
                     val dt = ((now - lastTime) / 1000f).coerceAtMost(0.033f) // clamp dt to avoid giant jumps
                     lastTime = now
-                    particleSystem.update(dt, rainIntensity, windFrequency, isStormMode)
+                    particleSystem.update(dt, rainIntensity, windFrequency, isStormMode, rippleRadiusMulti, rippleDurationMulti)
                     frameTime = now
                 }
             }
@@ -946,6 +961,30 @@ fun RainAppScreen(
                             )
                         }
 
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .background(Color(0xFF0F172A).copy(alpha = 0.5f), shape = RoundedCornerShape(16.dp))
+                                .border(
+                                    1.dp,
+                                    Color(0xFF1E293B),
+                                    shape = RoundedCornerShape(16.dp)
+                                )
+                                .clickable {
+                                    showThemesPage = true
+                                    triggerTouchHaptic(context, 0.4f)
+                                }
+                                .testTag("themes_toggle_button"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = "Themes",
+                                tint = if (showThemesPage) Color(0xFF38BDF8) else Color(0xFF94A3B8),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        
                         Box(
                             modifier = Modifier
                                 .size(44.dp)
@@ -1416,12 +1455,35 @@ fun RainAppScreen(
             }
         }
 
+        // Themes Page Overlay
+        AnimatedVisibility(
+            visible = showThemesPage,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300))
+        ) {
+            ThemesScreen(
+                onBack = { showThemesPage = false }
+            )
+        }
+        
         // Interactive Diagnostic Stats Overlay
         if (showStatsOverlay) {
-            val sliderInteractionSource = remember { MutableInteractionSource() }
-            val isSliderDragged by sliderInteractionSource.collectIsDraggedAsState()
-            val isSliderPressed by sliderInteractionSource.collectIsPressedAsState()
-            val isSliderActive = isSliderDragged || isSliderPressed
+            val levelSliderInteractionSource = remember { MutableInteractionSource() }
+            val isLevelSliderDragged by levelSliderInteractionSource.collectIsDraggedAsState()
+            val isLevelSliderPressed by levelSliderInteractionSource.collectIsPressedAsState()
+            val isLevelSliderActive = isLevelSliderDragged || isLevelSliderPressed
+
+            val radiusSliderInteractionSource = remember { MutableInteractionSource() }
+            val isRadiusSliderDragged by radiusSliderInteractionSource.collectIsDraggedAsState()
+            val isRadiusSliderPressed by radiusSliderInteractionSource.collectIsPressedAsState()
+            val isRadiusSliderActive = isRadiusSliderDragged || isRadiusSliderPressed
+
+            val durationSliderInteractionSource = remember { MutableInteractionSource() }
+            val isDurationSliderDragged by durationSliderInteractionSource.collectIsDraggedAsState()
+            val isDurationSliderPressed by durationSliderInteractionSource.collectIsPressedAsState()
+            val isDurationSliderActive = isDurationSliderDragged || isDurationSliderPressed
+
+            val isSliderActive = isLevelSliderActive || isRadiusSliderActive || isDurationSliderActive
 
             val overlayDimAlpha by androidx.compose.animation.core.animateFloatAsState(targetValue = if (isSliderActive) 0f else 0.6f, label = "")
             val contentAlpha by androidx.compose.animation.core.animateFloatAsState(targetValue = if (isSliderActive) 0f else 1f, label = "")
@@ -1441,7 +1503,7 @@ fun RainAppScreen(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                if (isSliderActive && rippleLevel > 0.01f) {
+                if (isLevelSliderActive && rippleLevel > 0.01f) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1502,13 +1564,36 @@ fun RainAppScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                             Text("Ripple Animation Level", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
-                        
                         androidx.compose.material3.Slider(
                             value = rippleLevel,
                             onValueChange = { RainState.rippleLevel.value = it },
                             valueRange = 0f..1f,
-                            modifier = Modifier.fillMaxWidth(),
-                            interactionSource = sliderInteractionSource
+                            modifier = Modifier.fillMaxWidth().alpha(if (isSliderActive && !isLevelSliderActive) 0f else 1f),
+                            interactionSource = levelSliderInteractionSource
+                        )
+                        
+                        Column(modifier = Modifier.alpha(contentAlpha)) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Ripple Radius", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        androidx.compose.material3.Slider(
+                            value = rippleRadiusMulti,
+                            onValueChange = { RainState.rippleRadiusMultiplier.value = it },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.fillMaxWidth().alpha(if (isSliderActive && !isRadiusSliderActive) 0f else 1f),
+                            interactionSource = radiusSliderInteractionSource
+                        )
+                        
+                        Column(modifier = Modifier.alpha(contentAlpha)) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Ripple Animation Duration", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        androidx.compose.material3.Slider(
+                            value = rippleDurationMulti,
+                            onValueChange = { RainState.rippleDurationMultiplier.value = it },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.fillMaxWidth().alpha(if (isSliderActive && !isDurationSliderActive) 0f else 1f),
+                            interactionSource = durationSliderInteractionSource
                         )
                         
                         Column(modifier = Modifier.alpha(contentAlpha)) {
@@ -1549,3 +1634,76 @@ fun DiagnosticRow(label: String, value: String) {
     }
 }
 
+
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ThemesScreen(onBack: () -> Unit) {
+    BackHandler { onBack() }
+    
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        containerColor = Color(0xFF0B0F19),
+        topBar = {
+            TopAppBar(
+                title = { Text("Atmospheres", color = Color.White, fontWeight = FontWeight.Bold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color(0xFF0B0F19),
+                    titleContentColor = Color.White
+                )
+            )
+        }
+    ) { paddingValues ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(2),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            items(DummyThemeData.themes) { theme ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(9f / 16f)
+                            .clickable { /* Select theme */ },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155))
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            // Dummy content for now
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B),
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = theme.name,
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "3D Pack",
+                        color = Color(0xFF38BDF8),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+    }
+}

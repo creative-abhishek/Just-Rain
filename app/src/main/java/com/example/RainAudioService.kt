@@ -36,6 +36,8 @@ object RainState {
     val hapticsEnabled = MutableStateFlow(true)
     val isMuted = MutableStateFlow(false)
     val rippleLevel = MutableStateFlow(0.33f) // 0.0 to 1.0
+    val rippleRadiusMultiplier = MutableStateFlow(0.5f) // 0.0 to 1.0
+    val rippleDurationMultiplier = MutableStateFlow(0.5f) // 0.0 to 1.0
     val backgroundImageUri = MutableStateFlow<android.net.Uri?>(null)
 
     // Queue for instant touch-triggered splashes: Pair(pan, volumeFactor)
