@@ -561,7 +561,7 @@ fun RainAppScreen(
 
     // Double-flicker Lightning animation loop
     LaunchedEffect(isStormMode, isPlaying, thunderEnabled) {
-        if (isStormMode && isPlaying && thunderEnabled) {
+        if (isPlaying && thunderEnabled) {
             while (true) {
                 // Flash every 7 to 18 seconds of deep storm
                 val nextFlashDelay = Random.nextLong(7000, 18000)
@@ -985,7 +985,7 @@ fun RainAppScreen(
                             modifier = Modifier.testTag("intensity_text")
                         )
                         Text(
-                            text = "STORM INTENSITY",
+                            text = "RAIN INTENSITY",
                             color = Color(0xFF64748B),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
@@ -1129,7 +1129,7 @@ fun RainAppScreen(
                                 modifier = Modifier.size(12.dp)
                             )
                             Text(
-                                text = "Soft Rain",
+                                text = "Light Rain",
                                 color = if (!isStormMode) Color(0xFF94A3B8) else Color(0xFF475569),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -1160,7 +1160,7 @@ fun RainAppScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             Text(
-                                text = "Thunderstorm",
+                                text = "Heavy Rain",
                                 color = if (isStormMode) Color(0xFF94A3B8) else Color(0xFF475569),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -1452,7 +1452,7 @@ fun RainAppScreen(
                         DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
                         DiagnosticRow(label = "Wind Modulation", value = "${(kotlin.math.abs(windFrequency - 0.5f) * 200).toInt()}%")
                         DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
-                        DiagnosticRow(label = "Lightning Interval", value = if (isStormMode) "7s - 18s" else "Disabled")
+                        DiagnosticRow(label = "Lightning Interval", value = if (thunderEnabled) "7s - 18s" else "Disabled")
                         
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Ripple Animation Level", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)

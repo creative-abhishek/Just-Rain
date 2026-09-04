@@ -242,7 +242,7 @@ class RainAudioService : Service() {
             }
 
             // Handle Thunder events
-            if (RainState.triggerThunder && stormMode && thunderOn) {
+            if (RainState.triggerThunder && thunderOn) {
                 RainState.triggerThunder = false
                 if (thunderIds.isNotEmpty()) {
                     val thunderId = thunderIds[Random.nextInt(thunderIds.size)]
