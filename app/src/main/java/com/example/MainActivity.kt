@@ -510,7 +510,19 @@ fun RainAppScreen(
     
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri -> RainState.backgroundImageUri.value = uri }
+        onResult = { uri -> 
+            uri?.let {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        it,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: Exception) {
+                    // Ignore if not supported
+                }
+            }
+            RainState.backgroundImageUri.value = uri 
+        }
     )
 
     var backgroundSleepMode by remember { mutableStateOf(true) }
@@ -678,6 +690,16 @@ fun RainAppScreen(
                 }
             }
     ) {
+        // Background Image
+        if (backgroundImageUri != null) {
+            coil.compose.AsyncImage(
+                model = backgroundImageUri,
+                contentDescription = "Background Image",
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
         // 1. Core Fullscreen Interactive Particle Animation
         Canvas(modifier = Modifier.fillMaxSize().testTag("rain_canvas")) {
             val currentFrame = frameTime
