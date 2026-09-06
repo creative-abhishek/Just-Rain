@@ -306,7 +306,6 @@ class GaplessAudioTrack(private val context: Context, private val resId: Int) {
             activeMp?.setNextMediaPlayer(nextMp)
         } catch (e: Exception) {}
         setupCompletionListener(activeMp)
-        setupCompletionListener(nextMp)
     }
 
     private fun createPlayer(): MediaPlayer? {
@@ -322,11 +321,12 @@ class GaplessAudioTrack(private val context: Context, private val resId: Int) {
     private fun setupCompletionListener(mp: MediaPlayer?) {
         mp?.setOnCompletionListener { completedPlayer ->
             activeMp = nextMp
-            completedPlayer.seekTo(0)
-            nextMp = completedPlayer
+            nextMp = createPlayer()
             try {
                 activeMp?.setNextMediaPlayer(nextMp)
             } catch (e: Exception) {}
+            setupCompletionListener(activeMp)
+            completedPlayer.release()
         }
     }
 
@@ -336,7 +336,7 @@ class GaplessAudioTrack(private val context: Context, private val resId: Int) {
 
     fun pause() {
         activeMp?.pause()
-        nextMp?.pause()
+        // We do not pause nextMp because calling pause() in Prepared state throws IllegalStateException
     }
 
     fun setVolume(vol: Float) {
