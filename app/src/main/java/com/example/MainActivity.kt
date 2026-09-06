@@ -526,6 +526,8 @@ fun RainAppScreen(
     val rippleLevel by RainState.rippleLevel.collectAsStateWithLifecycle()
     val rippleRadiusMulti by RainState.rippleRadiusMultiplier.collectAsStateWithLifecycle()
     val rippleDurationMulti by RainState.rippleDurationMultiplier.collectAsStateWithLifecycle()
+    val rippleShapeMulti by RainState.rippleShapeMultiplier.collectAsStateWithLifecycle()
+    val dropSizeMulti by RainState.rainDropSizeMultiplier.collectAsStateWithLifecycle()
     val backgroundImageUri by RainState.backgroundImageUri.collectAsStateWithLifecycle()
     
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
@@ -727,31 +729,34 @@ fun RainAppScreen(
             particleSystem.initialize(size.width, size.height)
 
             // Draw concentric ripples (Puddle level)
+            val shapeRatio = 0.05f + rippleShapeMulti * 0.95f
             for (r in particleSystem.ripples) {
                 drawOval(
                     color = Color(0xFF60A5FA).copy(alpha = r.alpha * 0.9f),
-                    topLeft = Offset(r.x - r.radius, r.y - r.radius * 0.35f),
-                    size = Size(r.radius * 2f, r.radius * 0.7f),
+                    topLeft = Offset(r.x - r.radius, r.y - r.radius * shapeRatio),
+                    size = Size(r.radius * 2f, r.radius * 2f * shapeRatio),
                     style = Stroke(width = 1.8.dp.toPx())
                 )
                 drawOval(
                     color = Color(0xFF38BDF8).copy(alpha = r.alpha * 0.7f),
-                    topLeft = Offset(r.x - r.radius * 1.3f, r.y - r.radius * 0.35f * 1.3f),
-                    size = Size(r.radius * 2.6f, r.radius * 0.7f * 1.3f),
+                    topLeft = Offset(r.x - r.radius * 1.3f, r.y - r.radius * shapeRatio * 1.3f),
+                    size = Size(r.radius * 2.6f, r.radius * 2f * shapeRatio * 1.3f),
                     style = Stroke(width = 0.8.dp.toPx())
                 )
             }
 
             // Draw falling raindrop streaks (Wind slanted)
             val windSlope = (windFrequency - 0.5f) * 3500f
+            val dropScale = 0.2f + dropSizeMulti * 2.3f
             for (d in particleSystem.drops) {
                 val headX = d.x
                 val headY = d.y
                 
-                val tailX = d.x - (windSlope / d.speed) * d.length
-                val tailY = d.y - d.length
+                val scaledLength = d.length * dropScale
+                val tailX = d.x - (windSlope / d.speed) * scaledLength
+                val tailY = d.y - scaledLength
                 
-                val w = d.width.dp.toPx()
+                val w = d.width.dp.toPx() * dropScale
 
                 val dropColor = Color.White.copy(alpha = d.alpha * 0.5f)
 
@@ -1483,7 +1488,17 @@ fun RainAppScreen(
             val isDurationSliderPressed by durationSliderInteractionSource.collectIsPressedAsState()
             val isDurationSliderActive = isDurationSliderDragged || isDurationSliderPressed
 
-            val isSliderActive = isLevelSliderActive || isRadiusSliderActive || isDurationSliderActive
+            val shapeSliderInteractionSource = remember { MutableInteractionSource() }
+            val isShapeSliderDragged by shapeSliderInteractionSource.collectIsDraggedAsState()
+            val isShapeSliderPressed by shapeSliderInteractionSource.collectIsPressedAsState()
+            val isShapeSliderActive = isShapeSliderDragged || isShapeSliderPressed
+
+            val dropSizeSliderInteractionSource = remember { MutableInteractionSource() }
+            val isDropSizeSliderDragged by dropSizeSliderInteractionSource.collectIsDraggedAsState()
+            val isDropSizeSliderPressed by dropSizeSliderInteractionSource.collectIsPressedAsState()
+            val isDropSizeSliderActive = isDropSizeSliderDragged || isDropSizeSliderPressed
+
+            val isSliderActive = isLevelSliderActive || isRadiusSliderActive || isDurationSliderActive || isShapeSliderActive || isDropSizeSliderActive
 
             val overlayDimAlpha by androidx.compose.animation.core.animateFloatAsState(targetValue = if (isSliderActive) 0f else 0.6f, label = "")
             val contentAlpha by androidx.compose.animation.core.animateFloatAsState(targetValue = if (isSliderActive) 0f else 1f, label = "")
@@ -1554,14 +1569,6 @@ fun RainAppScreen(
                                 }
                             }
                             Spacer(modifier = Modifier.height(12.dp))
-                            DiagnosticRow(label = "Active Audio Buffer", value = "4096 Bytes")
-                            DiagnosticRow(label = "Sample Resolution", value = "44.1kHz stereo PCM")
-                            DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
-                            DiagnosticRow(label = "Wind Modulation", value = "${(kotlin.math.abs(windFrequency - 0.5f) * 200).toInt()}%")
-                            DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
-                            DiagnosticRow(label = "Lightning Interval", value = if (thunderEnabled) "7s - 18s" else "Disabled")
-                            
-                            Spacer(modifier = Modifier.height(16.dp))
                             Text("Ripple Animation Level", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         androidx.compose.material3.Slider(
@@ -1573,7 +1580,7 @@ fun RainAppScreen(
                         )
                         
                         Column(modifier = Modifier.alpha(contentAlpha)) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text("Ripple Radius", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         androidx.compose.material3.Slider(
@@ -1585,7 +1592,7 @@ fun RainAppScreen(
                         )
                         
                         Column(modifier = Modifier.alpha(contentAlpha)) {
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text("Ripple Animation Duration", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                         androidx.compose.material3.Slider(
@@ -1597,6 +1604,39 @@ fun RainAppScreen(
                         )
                         
                         Column(modifier = Modifier.alpha(contentAlpha)) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Ripple Oval Shape", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        androidx.compose.material3.Slider(
+                            value = rippleShapeMulti,
+                            onValueChange = { RainState.rippleShapeMultiplier.value = it },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.fillMaxWidth().alpha(if (isSliderActive && !isShapeSliderActive) 0f else 1f),
+                            interactionSource = shapeSliderInteractionSource
+                        )
+
+                        Column(modifier = Modifier.alpha(contentAlpha)) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("Rain Drop Size", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                        androidx.compose.material3.Slider(
+                            value = dropSizeMulti,
+                            onValueChange = { RainState.rainDropSizeMultiplier.value = it },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.fillMaxWidth().alpha(if (isSliderActive && !isDropSizeSliderActive) 0f else 1f),
+                            interactionSource = dropSizeSliderInteractionSource
+                        )
+                        
+                        Column(modifier = Modifier.alpha(contentAlpha)) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            DiagnosticRow(label = "Active Audio Buffer", value = "4096 Bytes")
+                            DiagnosticRow(label = "Sample Resolution", value = "44.1kHz stereo PCM")
+                            DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
+                            DiagnosticRow(label = "Wind Modulation", value = "${(kotlin.math.abs(windFrequency - 0.5f) * 200).toInt()}%")
+                            DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
+                            DiagnosticRow(label = "Lightning Interval", value = if (thunderEnabled) "7s - 18s" else "Disabled")
+                            
+                            Spacer(modifier = Modifier.height(12.dp))
                             Spacer(modifier = Modifier.height(8.dp))
                             androidx.compose.material3.Button(
                                 onClick = { 
