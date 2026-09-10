@@ -56,14 +56,16 @@ class RainAudioService : Service() {
 
     @Volatile private var isRunning = false
 
-    private var mpLightRain: GaplessAudioTrack? = null
-    private var mpHeavyRain: GaplessAudioTrack? = null
-    private var mpWind: GaplessAudioTrack? = null
-    private var mpAlwaysOnThunder: GaplessAudioTrack? = null
+    private var mpLightRain: LoopingAudioTrack? = null
+    private var mpHeavyRain: LoopingAudioTrack? = null
+    private var mpWind: LoopingAudioTrack? = null
+    private var mpAlwaysOnThunder: LoopingAudioTrack? = null
 
     private var soundPool: SoundPool? = null
-    private var thunderIds = mutableListOf<Int>()
-    private var dropIds = mutableListOf<Int>()
+    
+    private val dropIds = mutableListOf<Int>()
+    private val thunderResIds = listOf(R.raw.thunder_1, R.raw.thunder_2, R.raw.thunder_3, R.raw.thunder_4, R.raw.thunder_5)
+    private val activeThunderPlayers = java.util.concurrent.ConcurrentLinkedQueue<android.media.MediaPlayer>()
 
     companion object {
         private const val CHANNEL_ID = "rain_ambient_channel"
@@ -82,10 +84,10 @@ class RainAudioService : Service() {
 
     private fun initAudio() {
         // Initialize MediaPlayers
-        mpLightRain = GaplessAudioTrack(this, R.raw.light_rain)
-        mpHeavyRain = GaplessAudioTrack(this, R.raw.heavy_rain)
-        mpWind = GaplessAudioTrack(this, R.raw.wind)
-        mpAlwaysOnThunder = GaplessAudioTrack(this, R.raw.always_on_thunder)
+        mpLightRain = LoopingAudioTrack(this, R.raw.light_rain)
+        mpHeavyRain = LoopingAudioTrack(this, R.raw.heavy_rain)
+        mpWind = LoopingAudioTrack(this, R.raw.wind)
+        mpAlwaysOnThunder = LoopingAudioTrack(this, R.raw.always_on_thunder)
 
         // Initialize SoundPool
         val audioAttributes = AudioAttributes.Builder()
@@ -93,16 +95,11 @@ class RainAudioService : Service() {
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
         soundPool = SoundPool.Builder()
-            .setMaxStreams(10)
+            .setMaxStreams(25)
             .setAudioAttributes(audioAttributes)
             .build()
 
         soundPool?.let { sp ->
-            thunderIds.add(sp.load(this, R.raw.thunder_1, 1))
-            thunderIds.add(sp.load(this, R.raw.thunder_2, 1))
-            thunderIds.add(sp.load(this, R.raw.thunder_3, 1))
-            thunderIds.add(sp.load(this, R.raw.thunder_4, 1))
-            thunderIds.add(sp.load(this, R.raw.thunder_5, 1))
 
             dropIds.add(sp.load(this, R.raw.drop_1, 1))
             dropIds.add(sp.load(this, R.raw.drop_2, 1))
@@ -245,12 +242,30 @@ class RainAudioService : Service() {
                 mpAlwaysOnThunder?.setVolume(0f)
             }
 
+            // Update active thunder players volumes
+            for (mp in activeThunderPlayers) {
+                try {
+                    mp.setVolume(masterVol, masterVol)
+                } catch (e: Exception) {}
+            }
+
             // Handle Thunder events
             if (RainState.triggerThunder && thunderOn) {
                 RainState.triggerThunder = false
-                if (thunderIds.isNotEmpty()) {
-                    val thunderId = thunderIds[Random.nextInt(thunderIds.size)]
-                    soundPool?.play(thunderId, masterVol, masterVol, 1, 0, 1f)
+                if (thunderResIds.isNotEmpty()) {
+                    try {
+                        val resId = thunderResIds[Random.nextInt(thunderResIds.size)]
+                        val mp = MediaPlayer.create(this@RainAudioService, resId)
+                        mp?.setVolume(masterVol, masterVol)
+                        mp?.setOnCompletionListener { 
+                            it.release()
+                            activeThunderPlayers.remove(it)
+                        }
+                        mp?.let { activeThunderPlayers.add(it) }
+                        mp?.start()
+                    } catch (e: Exception) {
+                        // Safe catch
+                    }
                 }
             }
 
@@ -285,6 +300,13 @@ class RainAudioService : Service() {
         mpWind?.release()
         mpAlwaysOnThunder?.release()
         
+        for (mp in activeThunderPlayers) {
+            try {
+                mp.release()
+            } catch (e: Exception) {}
+        }
+        activeThunderPlayers.clear()
+
         soundPool?.release()
         soundPool = null
         
@@ -294,59 +316,35 @@ class RainAudioService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 }
 
-class GaplessAudioTrack(private val context: Context, private val resId: Int) {
-    private var activeMp: MediaPlayer? = null
-    private var nextMp: MediaPlayer? = null
+class LoopingAudioTrack(private val context: Context, private val resId: Int) {
+    private var mp: MediaPlayer? = null
     private var currentVol = 0f
 
     init {
-        activeMp = createPlayer()
-        nextMp = createPlayer()
         try {
-            activeMp?.setNextMediaPlayer(nextMp)
-        } catch (e: Exception) {}
-        setupCompletionListener(activeMp)
-    }
-
-    private fun createPlayer(): MediaPlayer? {
-        return try {
-            val mp = MediaPlayer.create(context, resId)
+            mp = MediaPlayer.create(context, resId)
+            mp?.isLooping = true
             mp?.setVolume(currentVol, currentVol)
-            mp
         } catch (e: Exception) {
-            null
-        }
-    }
-
-    private fun setupCompletionListener(mp: MediaPlayer?) {
-        mp?.setOnCompletionListener { completedPlayer ->
-            activeMp = nextMp
-            nextMp = createPlayer()
-            try {
-                activeMp?.setNextMediaPlayer(nextMp)
-            } catch (e: Exception) {}
-            setupCompletionListener(activeMp)
-            completedPlayer.release()
+            mp = null
         }
     }
 
     fun start() {
-        activeMp?.start()
+        mp?.start()
     }
 
     fun pause() {
-        activeMp?.pause()
-        // We do not pause nextMp because calling pause() in Prepared state throws IllegalStateException
+        mp?.pause()
     }
 
     fun setVolume(vol: Float) {
         currentVol = vol
-        activeMp?.setVolume(vol, vol)
-        nextMp?.setVolume(vol, vol)
+        mp?.setVolume(vol, vol)
     }
 
     fun release() {
-        activeMp?.release()
-        nextMp?.release()
+        mp?.release()
+        mp = null
     }
 }
