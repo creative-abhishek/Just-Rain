@@ -33,6 +33,7 @@ object RainState {
     val isStormMode = MutableStateFlow(false)
     val thunderEnabled = MutableStateFlow(true)
     val ambientThunderEnabled = MutableStateFlow(false)
+    val lightningInterval = MutableStateFlow("Moderate")
     val hapticsEnabled = MutableStateFlow(true)
     val isMuted = MutableStateFlow(false)
     val rippleLevel = MutableStateFlow(0.33f) // 0.0 to 1.0

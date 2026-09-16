@@ -523,6 +523,7 @@ fun RainAppScreen(
     val isStormMode by RainState.isStormMode.collectAsStateWithLifecycle()
     val hapticsEnabled by RainState.hapticsEnabled.collectAsStateWithLifecycle()
     val thunderEnabled by RainState.thunderEnabled.collectAsStateWithLifecycle()
+    val lightningInterval by RainState.lightningInterval.collectAsStateWithLifecycle()
     val rippleLevel by RainState.rippleLevel.collectAsStateWithLifecycle()
     val rippleRadiusMulti by RainState.rippleRadiusMultiplier.collectAsStateWithLifecycle()
     val rippleDurationMulti by RainState.rippleDurationMultiplier.collectAsStateWithLifecycle()
@@ -583,11 +584,16 @@ fun RainAppScreen(
     }
 
     // Double-flicker Lightning animation loop
-    LaunchedEffect(isStormMode, isPlaying, thunderEnabled) {
+    LaunchedEffect(isStormMode, isPlaying, thunderEnabled, lightningInterval) {
         if (isPlaying && thunderEnabled) {
             while (true) {
-                // Flash every 7 to 18 seconds of deep storm
-                val nextFlashDelay = Random.nextLong(7000, 18000)
+                val nextFlashDelay = when (lightningInterval) {
+                    "Short" -> Random.nextLong(10000, 12000)
+                    "Moderate" -> Random.nextLong(12000, 15000)
+                    "Long" -> Random.nextLong(15000, 20000)
+                    "Once in a while" -> Random.nextLong(20000, 60000)
+                    else -> Random.nextLong(12000, 15000)
+                }
                 kotlinx.coroutines.delay(nextFlashDelay)
 
                 // Lightning Strike 1 (Initial burst)
@@ -1629,13 +1635,39 @@ fun RainAppScreen(
                         
                         Column(modifier = Modifier.alpha(contentAlpha)) {
                             Spacer(modifier = Modifier.height(12.dp))
-                            DiagnosticRow(label = "Active Audio Buffer", value = "4096 Bytes")
-                            DiagnosticRow(label = "Sample Resolution", value = "44.1kHz stereo PCM")
-                            DiagnosticRow(label = "Dynamic Rain Rate", value = "${(rainIntensity * 100).toInt()}%")
-                            DiagnosticRow(label = "Wind Modulation", value = "${(kotlin.math.abs(windFrequency - 0.5f) * 200).toInt()}%")
-                            DiagnosticRow(label = "Volume Setting", value = "${(volume * 100).toInt()}%")
-                            DiagnosticRow(label = "Lightning Interval", value = if (thunderEnabled) "7s - 18s" else "Disabled")
+                            var expanded by remember { mutableStateOf(false) }
+                            val options = listOf("Short", "Moderate", "Long", "Once in a while")
                             
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF1E293B), RoundedCornerShape(12.dp))
+                                        .clickable { expanded = true }
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Lightning Interval", color = Color.White, fontSize = 14.sp)
+                                    Text(lightningInterval, color = Color(0xFF94A3B8), fontSize = 14.sp)
+                                }
+                                androidx.compose.material3.DropdownMenu(
+                                    expanded = expanded,
+                                    onDismissRequest = { expanded = false },
+                                    modifier = Modifier.background(Color(0xFF1E293B))
+                                ) {
+                                    options.forEach { option ->
+                                        androidx.compose.material3.DropdownMenuItem(
+                                            text = { Text(option, color = Color.White) },
+                                            onClick = {
+                                                RainState.lightningInterval.value = option
+                                                expanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(12.dp))
                             Spacer(modifier = Modifier.height(8.dp))
                             androidx.compose.material3.Button(
